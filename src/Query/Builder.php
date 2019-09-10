@@ -115,7 +115,14 @@ class Builder extends BaseBuilder
                 $values[$key] = $value;
             }
         }
-
+        
+        //remove null fields (fix issue with parsing values)
+        foreach ($values as $key => $value) {
+            $values[$key] = array_filter($values[$key], function ($value) {
+                return $value !== null;
+            });
+        }
+        
         return $this->client->insert(
             $this->grammar->compileInsert($this, $values),
             array_flatten($values)
