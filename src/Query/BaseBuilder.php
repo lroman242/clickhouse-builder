@@ -60,7 +60,7 @@ abstract class BaseBuilder
      *
      * @var TwoElementsLogicExpression[]
      */
-    protected $wheres = [];
+    public $wheres = [];
 
     /**
      * Groupings.
