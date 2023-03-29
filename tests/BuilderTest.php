@@ -6,8 +6,13 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use Mockery as m;
 use PHPUnit\Framework\TestCase;
 use Tinderbox\Clickhouse\Client;
+use Tinderbox\Clickhouse\Common\File;
+use Tinderbox\Clickhouse\Common\FileFromString;
 use Tinderbox\Clickhouse\Common\Format;
-use Tinderbox\ClickhouseBuilder\Exceptions\BuilderException;
+use Tinderbox\Clickhouse\Common\TempTable;
+use Tinderbox\Clickhouse\Query;
+use Tinderbox\Clickhouse\Server;
+use Tinderbox\Clickhouse\ServerProvider;
 use Tinderbox\ClickhouseBuilder\Query\Builder;
 use Tinderbox\ClickhouseBuilder\Query\Column;
 use Tinderbox\ClickhouseBuilder\Query\Enums\Operator;
@@ -19,7 +24,7 @@ class BuilderTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
 
-    public function getBuilder() : Builder
+    public function getBuilder(): Builder
     {
         return new Builder(m::mock(Client::class));
     }
@@ -94,33 +99,33 @@ class BuilderTest extends TestCase
     {
         $builder = $this->getBuilder();
 
-        $builder->select(['column' => function ($column) use ($builder) {
+        $builder->select(['column' => function ($column) {
             $this->assertInstanceOf(Column::class, $column);
             $column->name('myColumn')->as('myAlias');
         }]);
 
         $this->assertEquals('SELECT `myColumn` AS `myAlias`', $builder->toSql());
 
-        $builder->select(['column' => function ($column) use ($builder) {
+        $builder->select(['column' => function ($column) {
             $this->assertInstanceOf(Column::class, $column);
         }]);
 
         $this->assertEquals('SELECT `column`', $builder->toSql());
 
-        $builder->select(function ($column) use ($builder) {
+        $builder->select(function ($column) {
             $this->assertInstanceOf(Column::class, $column);
         });
 
         $this->assertEquals('SELECT', $builder->toSql());
 
-        $builder->select(function ($column) use ($builder) {
+        $builder->select(function ($column) {
             $this->assertInstanceOf(Column::class, $column);
             $column->name('myColumn')->as('myAlias');
         });
 
         $this->assertEquals('SELECT `myColumn` AS `myAlias`', $builder->toSql());
 
-        $builder->select([function ($column) use ($builder) {
+        $builder->select([function ($column) {
             $this->assertInstanceOf(Column::class, $column);
             $column->name('myColumn')->as('myAlias');
         }]);
@@ -309,43 +314,66 @@ class BuilderTest extends TestCase
     public function test_join_simple()
     {
         $builder = $this->getBuilder();
-
         $builder->from('table')->join('table2', 'any', 'left', ['column']);
         $this->assertEquals('SELECT * FROM `table` ANY LEFT JOIN `table2` USING `column`', $builder->toSql());
 
+        $builder = $this->getBuilder();
         $builder->from('table')->join('table2', 'any', 'inner', ['column', 'column2']);
         $this->assertEquals('SELECT * FROM `table` ANY INNER JOIN `table2` USING `column`, `column2`', $builder->toSql());
 
+        $builder = $this->getBuilder();
         $builder->from('table')->join('table2', 'all', 'left', ['column']);
         $this->assertEquals('SELECT * FROM `table` ALL LEFT JOIN `table2` USING `column`', $builder->toSql());
 
+        $builder = $this->getBuilder();
         $builder->from('table')->join('table2', 'any', 'left', ['column']);
         $this->assertEquals('SELECT * FROM `table` ANY LEFT JOIN `table2` USING `column`', $builder->toSql());
 
+        $builder = $this->getBuilder();
         $builder->from('table')->join('table2', 'any', 'left', ['column'], 'global');
         $this->assertEquals('SELECT * FROM `table` GLOBAL ANY LEFT JOIN `table2` USING `column`', $builder->toSql());
 
+        $builder = $this->getBuilder();
+        $builder->from('table')->join('table2', 'any', 'left', ['column'], 'global', 'table3');
+        $this->assertEquals('SELECT * FROM `table` GLOBAL ANY LEFT JOIN `table2` AS `table3` USING `column`', $builder->toSql());
+
+        $builder = $this->getBuilder();
+        $builder->from('table')->join('table2 as table3', 'any', 'left', ['column'], 'global', 'table4');
+        $this->assertEquals('SELECT * FROM `table` GLOBAL ANY LEFT JOIN `table2` AS `table3` USING `column`', $builder->toSql());
+
+        $builder = $this->getBuilder();
+        $builder->from('table')->join('table2 as table3 as table', 'any', 'left', ['column'], 'global', 'table4');
+        $this->assertEquals('SELECT * FROM `table` GLOBAL ANY LEFT JOIN `table2` AS `table3` USING `column`', $builder->toSql());
+
+        $builder = $this->getBuilder();
         $builder->from('table')->leftJoin('table2', 'all', ['column']);
         $this->assertEquals('SELECT * FROM `table` ALL LEFT JOIN `table2` USING `column`', $builder->toSql());
 
+        $builder = $this->getBuilder();
         $builder->from('table')->leftJoin('table2', 'any', ['column']);
         $this->assertEquals('SELECT * FROM `table` ANY LEFT JOIN `table2` USING `column`', $builder->toSql());
 
+        $builder = $this->getBuilder();
         $builder->from('table')->innerJoin('table2', 'all', ['column']);
         $this->assertEquals('SELECT * FROM `table` ALL INNER JOIN `table2` USING `column`', $builder->toSql());
 
+        $builder = $this->getBuilder();
         $builder->from('table')->innerJoin('table2', 'any', ['column']);
         $this->assertEquals('SELECT * FROM `table` ANY INNER JOIN `table2` USING `column`', $builder->toSql());
 
+        $builder = $this->getBuilder();
         $builder->from('table')->anyLeftJoin('table2', ['column']);
         $this->assertEquals('SELECT * FROM `table` ANY LEFT JOIN `table2` USING `column`', $builder->toSql());
 
+        $builder = $this->getBuilder();
         $builder->from('table')->anyInnerJoin('table2', ['column']);
         $this->assertEquals('SELECT * FROM `table` ANY INNER JOIN `table2` USING `column`', $builder->toSql());
 
+        $builder = $this->getBuilder();
         $builder->from('table')->allLeftJoin('table2', ['column']);
         $this->assertEquals('SELECT * FROM `table` ALL LEFT JOIN `table2` USING `column`', $builder->toSql());
 
+        $builder = $this->getBuilder();
         $builder->from('table')->allInnerJoin('table2', ['column']);
         $this->assertEquals('SELECT * FROM `table` ALL INNER JOIN `table2` USING `column`', $builder->toSql());
     }
@@ -353,27 +381,30 @@ class BuilderTest extends TestCase
     public function test_join_with_closure()
     {
         $builder = $this->getBuilder();
-
         $builder->from('table')->anyLeftJoin(function ($join) {
             $this->assertInstanceOf(JoinClause::class, $join);
         });
 
+        $builder = $this->getBuilder();
         $builder->from('table')->allLeftJoin(function ($join) {
             $join->table('table2')->using(['column'])->addUsing('column2');
         });
         $this->assertEquals('SELECT * FROM `table` ALL LEFT JOIN `table2` USING `column`, `column2`', $builder->toSql());
 
+        $builder = $this->getBuilder();
         $builder->from('table')->anyInnerJoin(function ($join) {
             $join->table('table2')->using('column');
         }, ['column2']);
         $this->assertEquals('SELECT * FROM `table` ANY INNER JOIN `table2` USING `column`, `column2`', $builder->toSql());
 
+        $builder = $this->getBuilder();
         $builder->from('table')->allInnerJoin(function ($join) {
             $join->query()->select('column')->from('table');
             $join->addUsing('column', 'column2');
         });
         $this->assertEquals('SELECT * FROM `table` ALL INNER JOIN (SELECT `column` FROM `table`) USING `column`, `column2`', $builder->toSql());
 
+        $builder = $this->getBuilder();
         $builder->from('table')->allInnerJoin(function ($join) {
             $join->query()->select('column')->from(function ($from) {
                 $from->query()->from('table2');
@@ -383,6 +414,12 @@ class BuilderTest extends TestCase
 
         $builder = $this->getBuilder()->anyLeftJoin($this->getBuilder()->from('table'), ['column']);
         $this->assertEquals('SELECT * ANY LEFT JOIN (SELECT * FROM `table`) USING `column`', $builder->toSql());
+
+        $builder = $this->getBuilder();
+        $builder->from('table')->join(function ($join) {
+            $join->query()->select('column1', 'column2')->from('table2');
+        }, 'any', 'left', ['column1', 'column2']);
+        $this->assertEquals('SELECT * FROM `table` ANY LEFT JOIN (SELECT `column1`, `column2` FROM `table2`) USING `column1`, `column2`', $builder->toSql());
     }
 
     public function test_preWheres()
@@ -426,10 +463,10 @@ class BuilderTest extends TestCase
 
         $builder = $builder->newQuery()->select('column')->from('table')->preWhereIn('column', ['string', 1, 2, 3]);
         $this->assertEquals('SELECT `column` FROM `table` PREWHERE `column` IN (\'string\', 1, 2, 3)', $builder->toSql());
-    
+
         $builder = $builder->newQuery();
-        $builder->addFile('numbers.csv', '_numbers', ['UInt64'])->select('column')->from('table')->preWhereIn('column', '_numbers');
-        
+        $builder->addFile(new TempTable('_numbers', '', ['number' => 'UInt64']))->select('column')->from('table')->preWhereIn('column', '_numbers');
+
         $this->assertEquals('SELECT `column` FROM `table` PREWHERE `column` IN `_numbers`', $builder->toSql());
 
         $builder = $builder->newQuery()->from('table')->preWhereIn(function ($query) {
@@ -487,30 +524,24 @@ class BuilderTest extends TestCase
         $builder = $this->getBuilder();
 
         $builder = $builder->newQuery()->select('column')->from('table')->preWhereNotBetween('column', ['first', 'second']);
-        $this->assertEquals('SELECT `column` FROM `table` PREWHERE `column` NOT BETWEEN \'first\' AND \'second\'', $builder->toSql());
+        $this->assertEquals('SELECT `column` FROM `table` PREWHERE NOT ( `column` BETWEEN \'first\' AND \'second\' )', $builder->toSql());
 
         $builder = $builder->newQuery()->select('column')->from('table')->preWhereNotBetween(function ($query) {
             $query->from('table');
         }, ['first', 'second']);
-        $this->assertEquals('SELECT `column` FROM `table` PREWHERE (SELECT * FROM `table`) NOT BETWEEN \'first\' AND \'second\'', $builder->toSql());
+        $this->assertEquals('SELECT `column` FROM `table` PREWHERE NOT ( (SELECT * FROM `table`) BETWEEN \'first\' AND \'second\' )', $builder->toSql());
 
         $builder = $builder->newQuery()
             ->select('column')
             ->from('table')
             ->preWhereBetween('column', ['first', 'second'])->orPreWhereNotBetween('column2', ['first', 'second']);
-        $this->assertEquals('SELECT `column` FROM `table` PREWHERE `column` BETWEEN \'first\' AND \'second\' OR `column2` NOT BETWEEN \'first\' AND \'second\'', $builder->toSql());
-
-        $builder = $builder->newQuery()->select('column')->from('table')->preWhereBetweenColumns('column', ['first', 'second']);
-        $this->assertEquals('SELECT `column` FROM `table` PREWHERE `column` BETWEEN `first` AND `second`', $builder->toSql());
-
-        $builder = $builder->newQuery()->select('column')->from('table')->prewhere('col', '=', 'a')->orPreWhereBetweenColumns('column', ['first', 'second']);
-        $this->assertEquals('SELECT `column` FROM `table` PREWHERE `col` = \'a\' OR `column` BETWEEN `first` AND `second`', $builder->toSql());
+        $this->assertEquals('SELECT `column` FROM `table` PREWHERE `column` BETWEEN \'first\' AND \'second\' OR NOT ( `column2` BETWEEN \'first\' AND \'second\' )', $builder->toSql());
 
         $builder = $builder->newQuery()->select('column')->from('table')->preWhereNotBetweenColumns('column', ['first', 'second']);
-        $this->assertEquals('SELECT `column` FROM `table` PREWHERE `column` NOT BETWEEN `first` AND `second`', $builder->toSql());
+        $this->assertEquals('SELECT `column` FROM `table` PREWHERE NOT ( `column` BETWEEN `first` AND `second` )', $builder->toSql());
 
         $builder = $builder->newQuery()->select('column')->from('table')->prewhere('col', '=', 'a')->orPreWhereNotBetweenColumns('column', ['first', 'second']);
-        $this->assertEquals('SELECT `column` FROM `table` PREWHERE `col` = \'a\' OR `column` NOT BETWEEN `first` AND `second`', $builder->toSql());
+        $this->assertEquals('SELECT `column` FROM `table` PREWHERE `col` = \'a\' OR NOT ( `column` BETWEEN `first` AND `second` )', $builder->toSql());
     }
 
     public function test_wheres_basic()
@@ -606,16 +637,22 @@ class BuilderTest extends TestCase
 
         $builder = $this->getBuilder()->from('table')->whereGlobalNotIn('column', [1, 2, 3])->orWhereGlobalNotIn('column2', [1, 2, 3]);
         $this->assertEquals('SELECT * FROM `table` WHERE `column` GLOBAL NOT IN (1, 2, 3) OR `column2` GLOBAL NOT IN (1, 2, 3)', $builder->toSql());
-    
+
         $builder = $builder->newQuery();
-        $builder->addFile('numbers.csv', '_numbers', ['UInt64'])->select('column')->from('table')->whereIn('column', '_numbers');
-    
+        $builder->addFile(new TempTable('_numbers', '', ['number' => 'UInt64']))->select('column')->from('table')->whereIn('column', '_numbers');
+
         $this->assertEquals('SELECT `column` FROM `table` WHERE `column` IN `_numbers`', $builder->toSql());
-    
+
         $builder = $builder->newQuery();
-        $builder->addFile('numbers.csv', '_numbers', ['UInt64'])->select('column')->from('table')->whereGlobalIn('column', '_numbers');
-    
+        $builder->addFile(new TempTable('_numbers', '', ['number' => 'UInt64']))->select('column')->from('table')->whereGlobalIn('column', '_numbers');
+
         $this->assertEquals('SELECT `column` FROM `table` WHERE `column` GLOBAL IN `_numbers`', $builder->toSql());
+
+        $builder = $this->getBuilder()->from('table')->whereIn('column', []);
+        $this->assertEquals('SELECT * FROM `table` WHERE 0 = 1', $builder->toSql());
+
+        $builder = $this->getBuilder()->from('table')->whereNotIn('column', []);
+        $this->assertEquals('SELECT * FROM `table`', $builder->toSql());
     }
 
     public function test_where_between()
@@ -629,10 +666,10 @@ class BuilderTest extends TestCase
         $this->assertEquals('SELECT * FROM `table` WHERE (SELECT * FROM `table`) BETWEEN 1 AND 2', $builder->toSql());
 
         $builder = $this->getBuilder()->from('table')->whereNotBetween('column', [1, 'string']);
-        $this->assertEquals('SELECT * FROM `table` WHERE `column` NOT BETWEEN 1 AND \'string\'', $builder->toSql());
+        $this->assertEquals('SELECT * FROM `table` WHERE NOT ( `column` BETWEEN 1 AND \'string\' )', $builder->toSql());
 
         $builder = $this->getBuilder()->from('table')->where('col', '=', 'a')->orWhereNotBetween('column', [1, 'string']);
-        $this->assertEquals('SELECT * FROM `table` WHERE `col` = \'a\' OR `column` NOT BETWEEN 1 AND \'string\'', $builder->toSql());
+        $this->assertEquals('SELECT * FROM `table` WHERE `col` = \'a\' OR NOT ( `column` BETWEEN 1 AND \'string\' )', $builder->toSql());
 
         $builder = $this->getBuilder()->from('table')->where('column', 1)->orWhereBetween('column2', [1, 2]);
         $this->assertEquals('SELECT * FROM `table` WHERE `column` = 1 OR `column2` BETWEEN 1 AND 2', $builder->toSql());
@@ -662,11 +699,11 @@ class BuilderTest extends TestCase
 
     public function test_count()
     {
-        $builder = $this->getBuilder()->from('table')->select('column1', 'column2', 'column3')->orderBy('column1')->limit(10)->getCountQuery('*');
-        $this->assertEquals('SELECT count(*) as `count` FROM `table`', $builder->toSql());
+        $builder = $this->getBuilder()->from('table')->select('column1', 'column2', 'column3')->orderBy('column1')->limit(10)->getCountQuery();
+        $this->assertEquals('SELECT count() as `count` FROM `table`', $builder->toSql());
 
-        $builder = $this->getBuilder()->from('table')->select('column1', 'column2', 'column3')->groupBy('column2')->orderBy('column1')->limit(10)->getCountQuery('*');
-        $this->assertEquals('SELECT count(*) as `count` FROM `table` GROUP BY `column2` ORDER BY `column1` ASC', $builder->toSql());
+        $builder = $this->getBuilder()->from('table')->select('column1', 'column2', 'column3')->groupBy('column2')->orderBy('column1')->limit(10)->getCountQuery();
+        $this->assertEquals('SELECT count() as `count` FROM `table` GROUP BY `column2` ORDER BY `column1` ASC', $builder->toSql());
     }
 
     public function test_group_by()
@@ -702,10 +739,10 @@ class BuilderTest extends TestCase
         $this->assertEquals('SELECT * FROM `table` GROUP BY `column` HAVING `column` BETWEEN 1 AND 2 OR `column2` BETWEEN 3 AND 4', $builder->toSql());
 
         $builder = $this->getBuilder()->from('table')->groupBy('column')->havingNotBetween('column', [1, 2]);
-        $this->assertEquals('SELECT * FROM `table` GROUP BY `column` HAVING `column` NOT BETWEEN 1 AND 2', $builder->toSql());
+        $this->assertEquals('SELECT * FROM `table` GROUP BY `column` HAVING NOT ( `column` BETWEEN 1 AND 2 )', $builder->toSql());
 
         $builder = $this->getBuilder()->from('table')->groupBy('column')->havingBetween('column', [1, 2])->orHavingNotBetween('column2', [3, 4]);
-        $this->assertEquals('SELECT * FROM `table` GROUP BY `column` HAVING `column` BETWEEN 1 AND 2 OR `column2` NOT BETWEEN 3 AND 4', $builder->toSql());
+        $this->assertEquals('SELECT * FROM `table` GROUP BY `column` HAVING `column` BETWEEN 1 AND 2 OR NOT ( `column2` BETWEEN 3 AND 4 )', $builder->toSql());
 
         $builder = $builder->newQuery()->select('column')->from('table')->havingBetweenColumns('column', ['first', 'second']);
         $this->assertEquals('SELECT `column` FROM `table` HAVING `column` BETWEEN `first` AND `second`', $builder->toSql());
@@ -723,10 +760,10 @@ class BuilderTest extends TestCase
 
         $builder = $this->getBuilder()->from('table')->groupBy('column')->havingIn('column', [1, 2, 3]);
         $this->assertEquals('SELECT * FROM `table` GROUP BY `column` HAVING `column` IN (1, 2, 3)', $builder->toSql());
-    
+
         $builder = $builder->newQuery();
-        $builder->addFile('numbers.csv', '_numbers', ['UInt64'])->select('column')->from('table')->havingIn('column', '_numbers');
-    
+        $builder->addFile(new TempTable('_numbers', '', ['number' => 'UInt64']))->select('column')->from('table')->havingIn('column', '_numbers');
+
         $this->assertEquals('SELECT `column` FROM `table` HAVING `column` IN `_numbers`', $builder->toSql());
 
         $builder = $this->getBuilder()->from('table')->groupBy('column')->havingNotIn('column', [1, 2, 3]);
@@ -806,24 +843,58 @@ class BuilderTest extends TestCase
         $builder->unionAll('a');
     }
 
-    public function test_get_and_async_get()
+    public function test_readOne_and_read()
     {
-        $client = m::mock(Client::class);
-        $client->shouldReceive('select')->with('SELECT * FROM `table`', [], []);
+        $server = new Server('127.0.0.1');
+        $client = new Client((new ServerProvider())->addServer($server));
+
+        $client->write([
+            ['query' => 'drop table if exists default.builder_test'],
+            ['query' => 'create table if not exists default.builder_test (number UInt64) engine = Memory'],
+        ], 1);
+
         $builder = new Builder($client);
-        $builder->from('table')->get();
+        $result = $builder
+            ->table('system.tables')
+            ->where('database', '=', 'default')
+            ->where('name', '=', 'builder_test')->get();
 
-        $client = m::mock(Client::class);
-        $client->shouldReceive('selectAsync')->with([
-            ['SELECT * FROM `table1`', [], []], ['SELECT * FROM `table2`', [], []],
-        ]);
+        $this->assertEquals(1, count($result->rows), 'Correctly returns result of query');
+
+        $client->write([
+            ['query' => 'drop table if exists default.builder_test'],
+            ['query' => 'drop table if exists default.builder_test2'],
+            ['query' => 'create table if not exists default.builder_test (number UInt64) engine = Memory'],
+            ['query' => 'create table if not exists default.builder_test2 (number UInt64) engine = Memory'],
+        ], 1);
+
         $builder = new Builder($client);
 
-        $builder->from('table1')->asyncWithQuery(function ($builder) {
-            $builder->from('table2');
-        })->get();
+        $result = $builder
+            ->table('system.tables')
+            ->where('database', '=', 'default')
+            ->where('name', '=', 'builder_test')
+            ->asyncWithQuery(function ($builder) {
+                $builder
+                    ->table('system.tables')
+                    ->where('database', '=', 'default')
+                    ->where('name', '=', 'builder_test2');
+            })->get();
 
-        $builder = $this->getBuilder()->from('table1')->asyncWithQuery(null);
+        $this->assertTrue(count($result[0]->rows) && count($result[0]->rows), 'Correctly returns result of query');
+
+        $client->write([
+            ['query' => 'drop table if exists default.builder_test'],
+        ], 1);
+
+        $query = $builder->newQuery()->from(raw('numbers(0,10)'));
+        $query->asyncWithQuery()->table(raw('numbers(10,10)'));
+
+        $result = $query->get();
+
+        $this->assertEquals(2, count($result));
+        $this->assertEquals(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'], array_column($result[0]->rows, 'number'));
+        $this->assertEquals(['10', '11', '12', '13', '14', '15', '16', '17', '18', '19'], array_column($result[1]->rows, 'number'));
 
         $this->expectException(\InvalidArgumentException::class);
 
@@ -832,106 +903,303 @@ class BuilderTest extends TestCase
 
     public function test_insert()
     {
-        $client = m::mock(Client::class);
-        $client->shouldReceive('insert')->with('INSERT INTO `table` (`column1`, `column2`) FORMAT Values (?, ?), (?, ?)', ['value1', 'value2', 'value3', 'value4']);
+        $server = new Server('127.0.0.1');
+        $client = new Client((new ServerProvider())->addServer($server));
+
+        $client->write([
+            ['query' => 'drop table if exists default.builder_test'],
+            ['query' => 'create table if not exists default.builder_test (number UInt64, string String) engine = Memory'],
+        ], 1);
+
         $builder = new Builder($client);
 
-        $builder->table('table')->insert([[
-            'column1' => 'value1',
-            'column2' => 'value2',
+        $builder->table('builder_test')->insert([[
+            'number' => 1,
+            'string' => 'value1',
         ], [
-            'column1' => 'value3',
-            'column2' => 'value4',
+            'number' => 2,
+            'string' => 'value2',
         ]]);
 
-        $client = m::mock(Client::class);
-        $client->shouldReceive('insert')->with('INSERT INTO `table` FORMAT Values (?, ?), (?, ?)', ['value1', 'value2', 'value3', 'value4']);
+        $result = $builder->table('builder_test')->orderBy('number')->get();
+
+        $this->assertTrue($result->rows[0]['number'] == 1 && $result->rows[1]['number'] == 2, 'Correctly inserts data into table with values format and specified columns');
+
+        $client->write([
+            ['query' => 'drop table if exists default.builder_test'],
+            ['query' => 'create table if not exists default.builder_test (number UInt64, string String) engine = Memory'],
+        ], 1);
+
         $builder = new Builder($client);
 
-        $builder->table('table')->insert([[
-            'value1',
-            'value2',
-        ], [
-            'value3',
-            'value4',
-        ]]);
-
-        $client = m::mock(Client::class);
-        $client->shouldReceive('insert')->with('INSERT INTO `table` FORMAT Values (?, ?)', ['value1', 'value2']);
-        $builder = new Builder($client);
-
-        $builder->table('table')->insert(['value1', 'value2']);
-
-        $client = m::mock(Client::class);
-        $client->shouldReceive('insert')->with('INSERT INTO `table` (`column1`, `column2`) FORMAT Values (?, ?)', ['value1', 'value2']);
-        $builder = new Builder($client);
-
-        $builder->table('table')->insert([
-            'column1' => 'value1',
-            'column2' => 'value2',
+        $builder->table('builder_test')->insert([
+            [1, 'value1'], [2, 'value2'],
         ]);
 
-        $this->assertFalse($builder->table('table')->insert([]));
+        $result = $builder->table('builder_test')->orderBy('number')->get();
+
+        $this->assertTrue($result->rows[0]['number'] == 1 && $result->rows[1]['number'] == 2, 'Correctly inserts data into table with values format without columns');
+
+        $client->write([
+            ['query' => 'drop table if exists default.builder_test'],
+            ['query' => 'create table if not exists default.builder_test (number UInt64, string String) engine = Memory'],
+        ], 1);
+
+        $builder = new Builder($client);
+
+        $builder->table('builder_test')->insert([1, 'value1']);
+
+        $result = $builder->table('builder_test')->orderBy('number')->get();
+
+        $this->assertTrue($result->rows[0]['number'] == 1, 'Correctly inserts data into table with values format and one row');
+
+        $client->write([
+            ['query' => 'drop table if exists default.builder_test'],
+            ['query' => 'create table if not exists default.builder_test (number UInt64, string String) engine = Memory'],
+        ], 1);
+
+        $builder = new Builder($client);
+
+        $builder->table('builder_test')->insert(['number' => 1, 'string' => 'value1']);
+
+        $result = $builder->table('builder_test')->orderBy('number')->get();
+
+        $this->assertTrue($result->rows[0]['number'] == 1, 'Correctly inserts data into table with values format and one row with columns');
+
+        $this->assertFalse($builder->table('table')->insert([]), 'Fails to insert empty dataset');
+    }
+
+    protected function putInTempFile(string $content): string
+    {
+        $fileName = tempnam(sys_get_temp_dir(), 'builder_');
+        file_put_contents($fileName, $content);
+
+        return $fileName;
     }
 
     public function test_insert_files()
     {
-        $client = m::mock(Client::class);
-        $client->shouldReceive('insertFiles')
-            ->with('table', ['column1', 'column2'], ['file1', 'file2'], \Tinderbox\Clickhouse\Common\Format::CSV, 5)
-            ->andReturn([]);
-        $builder = new Builder($client);
+        $server = new Server('127.0.0.1');
+        $client = new Client((new ServerProvider())->addServer($server));
 
-        $builder->table('table')->insertFiles(['column1', 'column2'], ['file1', 'file2']);
+        $client->write([
+            ['query' => 'drop table if exists default.builder_test'],
+            ['query' => 'create table if not exists default.builder_test (number UInt64, string String) engine = Memory'],
+        ], 1);
+
+        $realFiles = [
+            $this->putInTempFile('5'.PHP_EOL.'6'.PHP_EOL),
+            $this->putInTempFile('7'.PHP_EOL.'8'.PHP_EOL),
+            $this->putInTempFile('9'.PHP_EOL.'10'.PHP_EOL),
+        ];
+
+        $files = [
+            '1'.PHP_EOL.'2'.PHP_EOL,
+            new FileFromString('3'.PHP_EOL.'4'.PHP_EOL),
+            new File($realFiles[0]),
+            new TempTable('test', new File($realFiles[1]), ['number' => 'UInt64']),
+            $realFiles[2],
+        ];
+
+        $builder = new Builder($client);
+        $builder->table('builder_test')->insertFiles(['number'], $files, Format::TSV, 5);
+
+        $builder = new Builder($client);
+        $result = $builder->table('builder_test')->orderBy('number')->get();
+
+        $this->assertEquals(10, count($result->rows), 'Correctly inserts all types of files');
+
+        $this->expectException(\TypeError::class);
+
+        $builder = new Builder($client);
+        $builder->table('builder_test')->insertFiles(['number'], [new \Exception('test')], Format::TSV, 5);
     }
-    
+
     public function testCompileAsyncQueries()
     {
         $builder = $this->getBuilder();
         $builder2 = null;
         $builder3 = null;
-        
-        $builder->from('table1')->asyncWithQuery(function ($builder) use(&$builder2, &$builder3) {
+
+        $builder->from('table1')->asyncWithQuery(function ($builder) use (&$builder2, &$builder3) {
             $builder2 = $builder;
-            
-            $builder->from('table2')->asyncWithQuery(function ($builder) use(&$builder3) {
+
+            $builder->from('table2')->asyncWithQuery(function ($builder) use (&$builder3) {
                 $builder3 = $builder;
-                
+
                 $builder->from('table3');
             });
         });
-        
+
         $sqls = $builder->getAsyncQueries();
-        
+
         $this->assertEquals([
             $builder,
             $builder2,
             $builder3,
         ], $sqls);
     }
-    
+
+    protected function createBuilder()
+    {
+        $serverProvider = new ServerProvider();
+        $serverProvider->addServer(new Server('localhost', 8123, 'default'));
+        $client = new Client($serverProvider);
+
+        return new Builder($client);
+    }
+
+    public function testDelete()
+    {
+        $builder = $this->createBuilder();
+        $builder->dropTableIfExists('test');
+        $builder->createTable('test', 'MergeTree order by number', [
+            'number' => 'UInt64',
+        ]);
+
+        $builder->newQuery()->table('test')->insertFile(['number'], new FileFromString('0'.PHP_EOL.'1'.PHP_EOL.'2'));
+
+        $result = $builder->newQuery()->table('test')->count();
+
+        $this->assertEquals(3, $result);
+
+        $builder->newQuery()->table('test')->where('number', '=', 1)->delete();
+
+        /*
+         * We have to sleep for 3 seconds while mutation in progress
+         */
+        sleep(3);
+
+        $result = $builder->newQuery()->table('test')->count();
+
+        $this->assertEquals(2, $result);
+    }
+
+    public function testDropTable()
+    {
+        $builder = $this->createBuilder();
+        $builder->dropTableIfExists('test');
+        $builder->createTable('test', 'MergeTree order by number', [
+            'number' => 'UInt64',
+        ]);
+        $builder->dropTable('test');
+
+        $result = $builder->newQuery()->table('system.tables')->where('name', '=', 'test')->count();
+
+        $this->assertEquals(0, $result);
+    }
+
+    public function testCount()
+    {
+        $result = $this->createBuilder()->table(raw('numbers(0,10)'))->count();
+
+        $this->assertEquals(10, $result);
+
+        $result = $this->createBuilder()->newQuery()->table(raw('numbers(0,10)'))->groupBy(raw('number % 2'))->count();
+
+        $this->assertEquals(2, $result);
+    }
+
+    public function testOnCluster()
+    {
+        $builder = $this->getBuilder();
+        $builder->onCluster('test');
+
+        $this->assertEquals('test', $builder->getOnCluster(), 'Can execute query on cluster');
+    }
+
+    public function testArrayJoin()
+    {
+        $builder = $this->getBuilder();
+        $builder->table('test')->arrayJoin('someArr');
+
+        $this->assertEquals('SELECT * FROM `test` ARRAY JOIN `someArr`', $builder->toSql());
+    }
+
+    public function testLeftArrayJoin()
+    {
+        $builder = $this->getBuilder();
+        $builder->table('test')->leftArrayJoin('someArr');
+
+        $this->assertEquals('SELECT * FROM `test` LEFT ARRAY JOIN `someArr`', $builder->toSql());
+    }
+
     public function testAddFile()
     {
         $builder = $this->getBuilder();
-        $builder->addFile('test.csv', '_data', ['UInt64']);
-        
-        $files = $builder->getFiles();
-        
-        $this->assertEquals(1, count($files));
-        $this->assertArrayHasKey('_data', $files);
-        
-        /* @var \Tinderbox\Clickhouse\Common\TempTable $table */
-        $table = $files['_data'];
-        
-        $this->assertEquals('_data', $table->getName());
-        $this->assertEquals('test.csv', $table->getSource());
-        $this->assertEquals(['UInt64'], $table->getStructure());
-        $this->assertEquals(Format::CSV, $table->getFormat());
-        
-        $e = BuilderException::temporaryTableAlreadyExists('_data');
-        $this->expectException(BuilderException::class);
-        $this->expectExceptionMessage($e->getMessage());
-    
-        $builder->addFile('test.csv', '_data', ['UInt64']);
+        $builder->addFile(new TempTable('_numbers', '', ['number' => 'UInt64']));
+        $builder->addFile(new TempTable('_numbers2', '', ['number' => 'UInt64']));
+
+        $this->assertEquals(2, count($builder->getFiles()));
+        $this->assertArrayHasKey('_numbers', $builder->getFiles());
+        $this->assertArrayHasKey('_numbers2', $builder->getFiles());
+    }
+
+    public function testToAsyncSqlsAndQueries()
+    {
+        $builder = $this->createBuilder();
+        $builder->table('system.tables')
+            ->where('database', '=', 'default')
+            ->where('name', '=', 'builder_test1');
+
+        $builder->asyncWithQuery(function ($builder) {
+            $builder
+                ->table('system.tables')
+                ->where('database', '=', 'default')
+                ->where('name', '=', 'builder_test2');
+        });
+
+        $builder->asyncWithQuery(function ($builder) {
+            $builder
+                ->table('system.tables')
+                ->where('database', '=', 'default')
+                ->where('name', '=', 'builder_test3');
+        });
+
+        $sqls = $builder->toAsyncSqls();
+        $queries = $builder->toAsyncQueries();
+
+        $this->assertEquals(3, count($sqls));
+        $this->assertEquals(3, count($queries));
+
+        $sqls = array_column($sqls, 'query');
+        $queries = array_map(function (Query $query) {
+            return $query->getQuery();
+        }, $queries);
+
+        $this->assertContains('SELECT * FROM `system`.`tables` WHERE `database` = \'default\' AND `name` = \'builder_test1\'', $sqls);
+        $this->assertContains('SELECT * FROM `system`.`tables` WHERE `database` = \'default\' AND `name` = \'builder_test2\'', $sqls);
+        $this->assertContains('SELECT * FROM `system`.`tables` WHERE `database` = \'default\' AND `name` = \'builder_test3\'', $sqls);
+
+        $this->assertContains('SELECT * FROM `system`.`tables` WHERE `database` = \'default\' AND `name` = \'builder_test1\'', $queries);
+        $this->assertContains('SELECT * FROM `system`.`tables` WHERE `database` = \'default\' AND `name` = \'builder_test2\'', $queries);
+        $this->assertContains('SELECT * FROM `system`.`tables` WHERE `database` = \'default\' AND `name` = \'builder_test3\'', $queries);
+    }
+
+    public function testJoinWithOnClause()
+    {
+        $builder = $this->getBuilder();
+        $builder->from('table1')->anyLeftJoin(function (JoinClause $join) {
+            $join->table('table2')->on('column_from_table_1', '=', 'column_from_table_2');
+        });
+        $this->assertEquals('SELECT * FROM `table1` ANY LEFT JOIN `table2` ON `column_from_table_1` = `column_from_table_2`', $builder->toSql());
+
+        $builder = $this->getBuilder();
+        $builder->from('table1')->anyLeftJoin(function (JoinClause $join) {
+            $join->table('table2')->on('column_from_table_1', '=', raw('toUInt32(`column_from_table_2`)'));
+        });
+        $this->assertEquals('SELECT * FROM `table1` ANY LEFT JOIN `table2` ON `column_from_table_1` = toUInt32(`column_from_table_2`)', $builder->toSql());
+    }
+
+    public function testMultipleJoins()
+    {
+        $builder = $this->getBuilder();
+        $builder->from('table1')->anyLeftJoin(function (JoinClause $join) {
+            $join->table('table2')->on('column_from_table_2', '=', 'column_from_table_1');
+        });
+        $builder->from('table1')->allLeftJoin(function (JoinClause $join) {
+            $join->table('table3')->on('column_from_table_3', '=', 'column_from_table_1');
+        });
+        $this->assertEquals('SELECT * FROM `table1` ANY LEFT JOIN `table2` ON `column_from_table_2` = `column_from_table_1` ALL LEFT JOIN `table3` ON `column_from_table_3` = `column_from_table_1`', $builder->toSql());
     }
 }

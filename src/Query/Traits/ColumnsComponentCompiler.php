@@ -17,14 +17,14 @@ trait ColumnsComponentCompiler
      *
      * @return string
      */
-    private function compileColumnsComponent(BaseBuilder $builder, array $columns) : string
+    private function compileColumnsComponent(BaseBuilder $builder, array $columns): string
     {
-        $columns = array_reduce($columns, function ($columns, $column) {
-            $columns[] = $this->compileColumn($column);
+        $compiledColumns = [];
 
-            return $columns;
-        }, []);
+        foreach ($columns as $column) {
+            $compiledColumns[] = $this->compileColumn($column);
+        }
 
-        return implode(', ', $columns);
+        return implode(', ', $compiledColumns);
     }
 }

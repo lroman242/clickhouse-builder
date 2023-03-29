@@ -118,10 +118,10 @@ class TwoElementsLogicExpression
      *
      * @return TwoElementsLogicExpression
      */
-    public function firstElementQuery($query) : self
+    public function firstElementQuery($query): self
     {
         if ($query instanceof \Closure) {
-            $query = tap($this->query->newQuery(), $query);
+            $query = tp($this->query->newQuery(), $query);
         }
 
         if ($query instanceof BaseBuilder) {
@@ -138,10 +138,10 @@ class TwoElementsLogicExpression
      *
      * @return TwoElementsLogicExpression
      */
-    public function secondElementQuery($query) : self
+    public function secondElementQuery($query): self
     {
         if ($query instanceof \Closure) {
-            $query = tap($this->query->newQuery(), $query);
+            $query = tp($this->query->newQuery(), $query);
         }
 
         if ($query instanceof BaseBuilder) {
@@ -166,7 +166,7 @@ class TwoElementsLogicExpression
      *
      * @return mixed
      */
-    public function getOperator() : ?Operator
+    public function getOperator(): ?Operator
     {
         return $this->operator;
     }
@@ -186,7 +186,7 @@ class TwoElementsLogicExpression
      *
      * @return mixed
      */
-    public function getConcatenationOperator() : Operator
+    public function getConcatenationOperator(): Operator
     {
         return $this->concatenationOperator;
     }

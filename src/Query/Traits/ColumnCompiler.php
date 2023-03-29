@@ -14,7 +14,7 @@ trait ColumnCompiler
      *
      * @return string
      */
-    public function compileColumn(Column $column) : string
+    public function compileColumn(Column $column): string
     {
         $result = '';
 
@@ -98,6 +98,43 @@ trait ColumnCompiler
         $condition = is_array($condition) ? implode(' ', $condition) : $condition;
 
         return "sumIf({$column}, {$condition})";
+    }
+
+    /**
+     * Compiles sum function on column.
+     *
+     * @param $column
+     *
+     * @return string
+     */
+    private function sum($column)
+    {
+        return "sum({$column})";
+    }
+
+    /**
+     * Compiles max function on column.
+     *
+     * @param $column
+     *
+     * @return string
+     */
+    private function max($column)
+    {
+        return "max({$column})";
+    }
+
+    /**
+     * Compiles round function on column.
+     *
+     * @param $column
+     * @param $decimals
+     *
+     * @return string
+     */
+    private function round($column, $decimals)
+    {
+        return "round({$column}, {$decimals})";
     }
 
     /**

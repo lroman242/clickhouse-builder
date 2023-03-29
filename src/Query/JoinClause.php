@@ -2,8 +2,10 @@
 
 namespace Tinderbox\ClickhouseBuilder\Query;
 
+use Closure;
 use Tinderbox\ClickhouseBuilder\Query\Enums\JoinStrict;
 use Tinderbox\ClickhouseBuilder\Query\Enums\JoinType;
+use Tinderbox\ClickhouseBuilder\Query\Enums\Operator;
 
 class JoinClause
 {
@@ -59,6 +61,20 @@ class JoinClause
     private $subQuery;
 
     /**
+     * Join alias.
+     *
+     * @var Identifier
+     */
+    private $alias;
+
+    /**
+     * On clauses for joining rows between tables.
+     *
+     * @var TwoElementsLogicExpression[]|null
+     */
+    private $onClauses;
+
+    /**
      * JoinClause constructor.
      *
      * @param BaseBuilder $query
@@ -78,6 +94,12 @@ class JoinClause
     public function table($table): self
     {
         if (is_string($table)) {
+            list($table, $alias) = $this->decomposeJoinExpressionToTableAndAlias($table);
+
+            if (!is_null($alias)) {
+                $this->as($alias);
+            }
+
             $table = new Identifier($table);
         } elseif ($table instanceof BaseBuilder) {
             $table = new Expression("({$table->toSql()})");
@@ -103,15 +125,26 @@ class JoinClause
     }
 
     /**
-     * Alias for using method.
+     * Set "on" clause for join.
      *
-     * @param array ...$columns
+     * @param string|Expression $first
+     * @param string            $operator
+     * @param string|Expression $second
+     * @param string            $concatOperator
      *
      * @return JoinClause
      */
-    public function on(...$columns): self
+    public function on($first, string $operator, $second, string $concatOperator = Operator::AND): self
     {
-        return $this->using($columns);
+        $expression = (new TwoElementsLogicExpression($this->query))
+            ->firstElement(is_string($first) ? new Identifier($first) : $first)
+            ->operator($operator)
+            ->secondElement(is_string($second) ? new Identifier($second) : $second)
+            ->concatOperator($concatOperator);
+
+        $this->onClauses[] = $expression;
+
+        return $this;
     }
 
     /**
@@ -161,7 +194,7 @@ class JoinClause
      *
      * @return JoinClause
      */
-    public function all()
+    public function all(): self
     {
         return $this->strict(JoinStrict::ALL);
     }
@@ -171,7 +204,7 @@ class JoinClause
      *
      * @return JoinClause
      */
-    public function any()
+    public function any(): self
     {
         return $this->strict(JoinStrict::ANY);
     }
@@ -181,7 +214,7 @@ class JoinClause
      *
      * @return JoinClause
      */
-    public function inner()
+    public function inner(): self
     {
         return $this->type(JoinType::INNER);
     }
@@ -191,7 +224,7 @@ class JoinClause
      *
      * @return JoinClause
      */
-    public function left()
+    public function left(): self
     {
         return $this->type(JoinType::LEFT);
     }
@@ -213,7 +246,7 @@ class JoinClause
     /**
      * Set sub-query as table to select from.
      *
-     * @param \Closure|BaseBuilder|null $query
+     * @param Closure|BaseBuilder|null $query
      *
      * @return JoinClause|BaseBuilder
      */
@@ -223,8 +256,8 @@ class JoinClause
             return $this->subQuery();
         }
 
-        if ($query instanceof \Closure) {
-            $query = tap($this->query->newQuery(), $query);
+        if ($query instanceof Closure) {
+            $query = tp($this->query->newQuery(), $query);
         }
 
         if ($query instanceof BaseBuilder) {
@@ -237,11 +270,31 @@ class JoinClause
     /**
      * Get sub-query builder.
      *
+     * @param string|null $alias
+     *
      * @return BaseBuilder
      */
-    public function subQuery(): BaseBuilder
+    public function subQuery(string $alias = null): BaseBuilder
     {
+        if ($alias) {
+            $this->as($alias);
+        }
+
         return $this->subQuery = $this->query->newQuery();
+    }
+
+    /**
+     * Set join alias.
+     *
+     * @param string $alias
+     *
+     * @return $this
+     */
+    public function as(string $alias): self
+    {
+        $this->alias = new Identifier($alias);
+
+        return $this;
     }
 
     /**
@@ -252,6 +305,16 @@ class JoinClause
     public function getUsing(): ?array
     {
         return $this->using;
+    }
+
+    /**
+     * Get on clauses.
+     *
+     * @return array|null
+     */
+    public function getOnClauses(): ?array
+    {
+        return $this->onClauses;
     }
 
     /**
@@ -297,11 +360,21 @@ class JoinClause
     /**
      * Get table to select from.
      *
-     * @return Expression|null|Identifier
+     * @return Expression|null|string
      */
     public function getTable()
     {
         return $this->table;
+    }
+
+    /**
+     * Get alias.
+     *
+     * @return Identifier
+     */
+    public function getAlias(): ?Identifier
+    {
+        return $this->alias;
     }
 
     /**
@@ -323,5 +396,21 @@ class JoinClause
             },
             $array
         );
+    }
+
+    /**
+     * Tries to decompose string join expression to table name and alias.
+     *
+     * @param string $table
+     *
+     * @return array
+     */
+    private function decomposeJoinExpressionToTableAndAlias(string $table): array
+    {
+        if (strpos(strtolower($table), ' as ') !== false) {
+            return array_map('trim', preg_split('/\s+as\s+/i', $table));
+        }
+
+        return [$table, null];
     }
 }

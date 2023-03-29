@@ -15,16 +15,16 @@ trait GroupsComponentCompiler
      *
      * @return string
      */
-    private function compileGroupsComponent(Builder $builder, array $columns) : string
+    private function compileGroupsComponent(Builder $builder, array $columns): string
     {
-        $columns = array_reduce($columns, function ($columns, $column) {
-            $columns[] = $this->compileColumn($column);
+        $compiledColumns = [];
 
-            return $columns;
-        }, []);
+        foreach ($columns as $column) {
+            $compiledColumns[] = $this->compileColumn($column);
+        }
 
-        if (!empty($columns) && !in_array('*', $columns, true)) {
-            return 'GROUP BY '.implode(', ', $columns);
+        if (!empty($compiledColumns) && !in_array('*', $compiledColumns, true)) {
+            return 'GROUP BY '.implode(', ', $compiledColumns);
         } else {
             return '';
         }

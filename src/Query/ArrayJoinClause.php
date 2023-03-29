@@ -2,24 +2,30 @@
 
 namespace Tinderbox\ClickhouseBuilder\Query;
 
-use Tinderbox\ClickhouseBuilder\Query\Enums\JoinStrict;
 use Tinderbox\ClickhouseBuilder\Query\Enums\JoinType;
 
 class ArrayJoinClause
 {
     /**
-     * Identifier of array to join
+     * Identifier of array to join.
      *
      * @var Expression|Identifier
      */
     private $arrayIdentifier;
-    
+
     /**
      * Builder which initiated join.
      *
      * @var Builder
      */
     private $query;
+
+    /**
+     * Join type.
+     *
+     * @var JoinType|null
+     */
+    private $type;
 
     /**
      * JoinClause constructor.
@@ -29,6 +35,30 @@ class ArrayJoinClause
     public function __construct(BaseBuilder $query)
     {
         $this->query = $query;
+    }
+
+    /**
+     * Set LEFT join type.
+     *
+     * @return ArrayJoinClause
+     */
+    public function left(): self
+    {
+        return $this->type(JoinType::LEFT);
+    }
+
+    /**
+     * Set join type.
+     *
+     * @param string $type
+     *
+     * @return ArrayJoinClause
+     */
+    public function type(string $type): self
+    {
+        $this->type = new JoinType(strtoupper($type));
+
+        return $this;
     }
 
     /**
@@ -48,7 +78,7 @@ class ArrayJoinClause
 
         return $this;
     }
-    
+
     /**
      * Get array identifier to join.
      *
@@ -57,5 +87,15 @@ class ArrayJoinClause
     public function getArrayIdentifier()
     {
         return $this->arrayIdentifier;
+    }
+
+    /**
+     * Get join type.
+     *
+     * @return JoinType|null
+     */
+    public function getType(): ?JoinType
+    {
+        return $this->type;
     }
 }

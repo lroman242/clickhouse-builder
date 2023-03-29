@@ -10,14 +10,13 @@ use Tinderbox\ClickhouseBuilder\Exceptions\BuilderException;
 use Tinderbox\ClickhouseBuilder\Exceptions\GrammarException;
 use Tinderbox\ClickhouseBuilder\Exceptions\NotSupportedException;
 use Tinderbox\ClickhouseBuilder\Query\Builder;
-use Tinderbox\ClickhouseBuilder\Query\From;
 use Tinderbox\ClickhouseBuilder\Query\JoinClause;
 
 class ExceptionsTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
 
-    public function getBuilder() : Builder
+    public function getBuilder(): Builder
     {
         return new Builder(m::mock(Client::class));
     }
@@ -33,14 +32,15 @@ class ExceptionsTest extends TestCase
         $e = GrammarException::missedTableForInsert();
         $this->assertInstanceOf(GrammarException::class, $e);
 
-        $from = new From($this->getBuilder());
-
-        $e = GrammarException::wrongFrom($from);
+        $e = GrammarException::wrongFrom();
         $this->assertInstanceOf(GrammarException::class, $e);
 
         $join = new JoinClause($this->getBuilder());
 
         $e = GrammarException::wrongJoin($join);
+        $this->assertInstanceOf(GrammarException::class, $e);
+
+        $e = GrammarException::ambiguousJoinKeys();
         $this->assertInstanceOf(GrammarException::class, $e);
     }
 
@@ -49,7 +49,7 @@ class ExceptionsTest extends TestCase
         $e = NotSupportedException::transactions();
         $this->assertInstanceOf(NotSupportedException::class, $e);
 
-        $e = NotSupportedException::updateAndDelete();
+        $e = NotSupportedException::update();
         $this->assertInstanceOf(NotSupportedException::class, $e);
     }
 }

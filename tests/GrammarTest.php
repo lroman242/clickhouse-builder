@@ -23,7 +23,7 @@ class GrammarTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
 
-    public function getBuilder() : Builder
+    public function getBuilder(): Builder
     {
         return new Builder(m::mock(Client::class));
     }
@@ -66,24 +66,10 @@ class GrammarTest extends TestCase
             ['column' => 'value'],
             ['column' => 'value 2'],
             ['column' => 'value 3'],
+            ['column' => null],
         ]);
 
-        $this->assertEquals('INSERT INTO `table` (`column`) FORMAT Values (?), (?), (?)', $sql);
-    }
-
-    public function testCompileInsertArray()
-    {
-        $builder = $this->getBuilder()->table('table');
-
-        $grammar = new Grammar();
-
-        $sql = $grammar->compileInsert($builder, [
-            ['column' => 'value'],
-            ['column' => 'value 2'],
-            ['column' => [1, 2, 3]],
-        ]);
-
-        $this->assertEquals('INSERT INTO `table` (`column`) FORMAT Values (?), (?), ([?, ?, ?])', $sql);
+        $this->assertEquals("INSERT INTO `table` (`column`) FORMAT Values ('value'), ('value 2'), ('value 3'), (null)", $sql);
     }
 
     public function testCompileInsertWithoutFrom()
@@ -191,6 +177,27 @@ class GrammarTest extends TestCase
         $this->assertEquals('SELECT sumIf(`column`, > 10)', $select);
 
         $builder->select(function ($column) {
+            $column->name('column')->sum();
+        });
+
+        $select = $grammar->compileSelect($builder);
+        $this->assertEquals('SELECT sum(`column`)', $select);
+
+        $builder->select(function ($column) {
+            $column->sum('column');
+        });
+
+        $select = $grammar->compileSelect($builder);
+        $this->assertEquals('SELECT sum(`column`)', $select);
+
+        $builder->select(function ($column) {
+            $column->sum('column')->round(2);
+        });
+
+        $select = $grammar->compileSelect($builder);
+        $this->assertEquals('SELECT round(sum(`column`), 2)', $select);
+
+        $builder->select(function ($column) {
             $column->name('column')->distinct();
         });
 
@@ -218,6 +225,9 @@ class GrammarTest extends TestCase
         $this->assertEquals('SELECT * FROM `table` GROUP BY `a`, `b`', $select);
 
         $select = $grammar->compileSelect($this->getBuilder()->from('table')->groupBy([]));
+        $this->assertEquals('SELECT * FROM `table`', $select);
+
+        $select = $grammar->compileSelect($this->getBuilder()->from('table')->groupBy('*'));
         $this->assertEquals('SELECT * FROM `table`', $select);
 
         /*
@@ -277,6 +287,25 @@ class GrammarTest extends TestCase
         $select = $grammar->compileSelect($this->getBuilder()->anyLeftJoin('table', ['column'], true));
         $this->assertEquals('SELECT * GLOBAL ANY LEFT JOIN `table` USING `column`', $select);
 
+        $select = $grammar->compileSelect($this->getBuilder()->anyLeftJoin('table', ['column'], true, 'another_table'));
+        $this->assertEquals('SELECT * GLOBAL ANY LEFT JOIN `table` AS `another_table` USING `column`', $select);
+
+        $select = $grammar->compileSelect($this->getBuilder()->anyLeftJoin(function (JoinClause $join) {
+            $join->table($this->getBuilder()->table('test')->select('column'));
+        }, ['column'], true));
+        $this->assertEquals('SELECT * GLOBAL ANY LEFT JOIN (SELECT `column` FROM `test`) USING `column`', $select);
+
+        $select = $grammar->compileSelect($this->getBuilder()->anyLeftJoin(function (JoinClause $join) {
+            $join->subQuery('test')->table('table');
+        }, ['column']));
+        $this->assertEquals('SELECT * ANY LEFT JOIN (SELECT * FROM `table`) AS `test` USING `column`', $select);
+
+        $select = $grammar->compileSelect($this->getBuilder()->from($this->getBuilder()->table('test_1')->select('column', 'column_1'), 'test_1_alias')
+            ->anyLeftJoin(function (JoinClause $join) {
+                $join->table($this->getBuilder()->table('test_2')->select('column', 'column_2'))->as('test_2_alias')->on('test_1_alias.column', '=', 'test_2_alias.column');
+            }));
+        $this->assertEquals('SELECT * FROM (SELECT `column`, `column_1` FROM `test_1`) AS `test_1_alias` ANY LEFT JOIN (SELECT `column`, `column_2` FROM `test_2`) AS `test_2_alias` ON `test_1_alias`.`column` = `test_2_alias`.`column`', $select);
+
         /*
          * With complex two elements logic expressions
          */
@@ -325,18 +354,84 @@ class GrammarTest extends TestCase
         $grammar->compileSelect($builder);
     }
 
+    public function testCompileSelectWithAmbiguousJoinKeys()
+    {
+        $grammar = new Grammar();
+
+        $builder = $this->getBuilder();
+
+        $builder->join(function (JoinClause $join) {
+            $join->table('table')->using(['aaa'])
+                ->on('aaa', '=', 'bbb');
+        });
+
+        $this->expectException(GrammarException::class);
+
+        $grammar->compileSelect($builder);
+    }
+
     public function testCompileSelectFromNullTable()
     {
         $grammar = new Grammar();
 
         $builder = $this->getBuilder();
         $builder->from(null);
-        $from = $builder->getFrom();
 
-        $e = GrammarException::wrongFrom($from);
+        $e = GrammarException::wrongFrom();
         $this->expectException(GrammarException::class);
         $this->expectExceptionMessage($e->getMessage());
 
         $grammar->compileSelect($builder);
+    }
+
+    public function testCompileDelete()
+    {
+        $grammar = new Grammar();
+        $builder = $this->getBuilder();
+        $builder->from('table')->where('column', 1);
+
+        $sql = $grammar->compileDelete($builder);
+
+        $this->assertEquals('ALTER TABLE `table` DELETE WHERE `column` = 1', $sql);
+
+        $builder = $this->getBuilder();
+        $builder->from('table')->where('column', 1)->onCluster('test');
+
+        $sql = $grammar->compileDelete($builder);
+
+        $this->assertEquals('ALTER TABLE `table` ON CLUSTER test DELETE WHERE `column` = 1', $sql);
+
+        $builder = $this->getBuilder();
+        $builder->from('table');
+
+        $this->expectException(GrammarException::class);
+        $this->expectExceptionMessage('Missed where section for delete statement.');
+
+        $grammar->compileDelete($builder);
+    }
+
+    public function testCompileCreateTable()
+    {
+        $grammar = new Grammar();
+
+        $sql = $grammar->compileCreateTable('table', 'MergeTree', ['id' => 'UInt64'], true, 'test');
+        $this->assertEquals('CREATE TABLE IF NOT EXISTS table ON CLUSTER test (id UInt64) ENGINE = MergeTree', $sql);
+
+        $sql = $grammar->compileCreateTable('table', 'MergeTree', ['id' => 'UInt64'], false, 'test');
+        $this->assertEquals('CREATE TABLE table ON CLUSTER test (id UInt64) ENGINE = MergeTree', $sql);
+
+        $sql = $grammar->compileCreateTable('table', 'MergeTree', ['id' => 'UInt64'], false);
+        $this->assertEquals('CREATE TABLE table  (id UInt64) ENGINE = MergeTree', $sql);
+    }
+
+    public function testCompileDropTable()
+    {
+        $grammar = new Grammar();
+
+        $sql = $grammar->compileDropTable('table', true, 'test');
+        $this->assertEquals('DROP TABLE IF EXISTS table ON CLUSTER test', $sql);
+
+        $sql = $grammar->compileDropTable('table', false);
+        $this->assertEquals('DROP TABLE table', $sql);
     }
 }

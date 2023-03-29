@@ -2,15 +2,14 @@
 
 namespace Tinderbox\ClickhouseBuilder\Query;
 
-use function MongoDB\is_string_array;
 use Tinderbox\ClickhouseBuilder\Exceptions\GrammarException;
 use Tinderbox\ClickhouseBuilder\Query\Enums\Format;
+use Tinderbox\ClickhouseBuilder\Query\Traits\ArrayJoinComponentCompiler;
 use Tinderbox\ClickhouseBuilder\Query\Traits\ColumnsComponentCompiler;
 use Tinderbox\ClickhouseBuilder\Query\Traits\FormatComponentCompiler;
 use Tinderbox\ClickhouseBuilder\Query\Traits\FromComponentCompiler;
 use Tinderbox\ClickhouseBuilder\Query\Traits\GroupsComponentCompiler;
 use Tinderbox\ClickhouseBuilder\Query\Traits\HavingsComponentCompiler;
-use Tinderbox\ClickhouseBuilder\Query\Traits\ArrayJoinComponentCompiler;
 use Tinderbox\ClickhouseBuilder\Query\Traits\JoinComponentCompiler;
 use Tinderbox\ClickhouseBuilder\Query\Traits\LimitByComponentCompiler;
 use Tinderbox\ClickhouseBuilder\Query\Traits\LimitComponentCompiler;
@@ -24,29 +23,29 @@ use Tinderbox\ClickhouseBuilder\Query\Traits\WheresComponentCompiler;
 
 class Grammar
 {
-    use ColumnsComponentCompiler,
-        FromComponentCompiler,
-        ArrayJoinComponentCompiler,
-        JoinComponentCompiler,
-        TwoElementsLogicExpressionsCompiler,
-        WheresComponentCompiler,
-        PreWheresComponentCompiler,
-        HavingsComponentCompiler,
-        SampleComponentCompiler,
-        GroupsComponentCompiler,
-        OrdersComponentCompiler,
-        LimitComponentCompiler,
-        LimitByComponentCompiler,
-        UnionsComponentCompiler,
-        FormatComponentCompiler,
-        TupleCompiler;
+    use ColumnsComponentCompiler;
+    use FromComponentCompiler;
+    use ArrayJoinComponentCompiler;
+    use JoinComponentCompiler;
+    use TwoElementsLogicExpressionsCompiler;
+    use WheresComponentCompiler;
+    use PreWheresComponentCompiler;
+    use HavingsComponentCompiler;
+    use SampleComponentCompiler;
+    use GroupsComponentCompiler;
+    use OrdersComponentCompiler;
+    use LimitComponentCompiler;
+    use LimitByComponentCompiler;
+    use UnionsComponentCompiler;
+    use FormatComponentCompiler;
+    use TupleCompiler;
 
     protected $selectComponents = [
         'columns',
         'from',
         'sample',
         'arrayJoin',
-        'join',
+        'joins',
         'prewheres',
         'wheres',
         'groups',
@@ -95,7 +94,7 @@ class Grammar
      *
      * @return string
      */
-    public function compileInsert(BaseBuilder $query, $values) : string
+    public function compileInsert(BaseBuilder $query, $values): string
     {
         $result = [];
 
@@ -111,11 +110,15 @@ class Grammar
             throw GrammarException::missedTableForInsert();
         }
 
-        $columns = array_map(function ($col) {
-            return is_string($col) ? new Identifier($col) : null;
-        }, array_keys($values[0]));
+        $format = $query->getFormat() ?? Format::VALUES;
 
-        $columns = array_filter($columns);
+        if ($format == Format::VALUES) {
+            $columns = array_map(function ($col) {
+                return is_string($col) ? new Identifier($col) : null;
+            }, array_keys($values[0]));
+
+            $columns = array_filter($columns);
+        }
 
         $columns = $this->compileTuple(new Tuple($columns));
 
@@ -125,25 +128,116 @@ class Grammar
             $result[] = "({$columns})";
         }
 
-        $result[] = 'FORMAT '.($query->getFormat() ?? Format::VALUES);
+        $result[] = 'FORMAT '.$format;
 
-        // glue together all the values
-        $result[] = implode(', ', array_map(function (array $columns) {
-            $placeholders = array_map(function ($columnValue) {
-                // if inserted value is Array
-                if (is_array($columnValue)) {
-                    return sprintf(
-                        '[%s]',
-                        implode(', ', array_fill(0, count($columnValue), '?'))
-                    );
-                }
-                return '?';
-            }, $columns);
-
-            return sprintf('(%s)', implode(', ', $placeholders));
-        }, $values));
+        if ($format == Format::VALUES) {
+            $result[] = $this->compileInsertValues($values);
+        }
 
         return implode(' ', $result);
+    }
+
+    /**
+     * Compiles create table query.
+     *
+     * @param             $tableName
+     * @param string      $engine
+     * @param array       $structure
+     * @param bool        $ifNotExists
+     * @param string|null $clusterName
+     * @param string|null $extraOptions
+     *
+     * @return string
+     */
+    public function compileCreateTable($tableName, string $engine, array $structure, bool $ifNotExists = false, ?string $clusterName = null, ?string $extraOptions = null): string
+    {
+        if ($tableName instanceof Identifier) {
+            $tableName = (string) $tableName;
+        }
+
+        $onCluster = $clusterName === null ? '' : "ON CLUSTER {$clusterName}";
+        $extraOptions = $extraOptions ?? '';
+
+        return 'CREATE TABLE '
+            .($ifNotExists ? 'IF NOT EXISTS ' : '')
+            .rtrim("{$tableName} {$onCluster} ({$this->compileTableStructure($structure)}) ENGINE = {$engine} {$extraOptions}");
+    }
+
+    /**
+     * Compiles drop table query.
+     *
+     * @param             $tableName
+     * @param bool        $ifExists
+     * @param string|null $clusterName
+     *
+     * @return string
+     */
+    public function compileDropTable($tableName, bool $ifExists = false, ?string $clusterName = null): string
+    {
+        if ($tableName instanceof Identifier) {
+            $tableName = (string) $tableName;
+        }
+
+        $onCluster = $clusterName === null ? '' : "ON CLUSTER {$clusterName}";
+
+        return trim('DROP TABLE '.($ifExists ? 'IF EXISTS ' : '')."{$tableName} {$onCluster}");
+    }
+
+    /**
+     * Assembles table structure.
+     *
+     * @param array $structure
+     *
+     * @return string
+     */
+    public function compileTableStructure(array $structure): string
+    {
+        $result = [];
+
+        foreach ($structure as $column => $type) {
+            $result[] = $column.' '.$type;
+        }
+
+        return implode(', ', $result);
+    }
+
+    public function compileInsertValues($values)
+    {
+        return implode(', ', array_map(function ($value) {
+            return '('.implode(', ', array_map(function ($value) {
+                return $this->wrap($value);
+            }, $value)).')';
+        }, $values));
+    }
+
+    /**
+     * Compile delete query.
+     *
+     * @param BaseBuilder $query
+     *
+     * @throws GrammarException
+     *
+     * @return string
+     */
+    public function compileDelete(BaseBuilder $query)
+    {
+        $this->verifyFrom($query->getFrom());
+
+        $sql = "ALTER TABLE {$this->wrap($query->getFrom()->getTable())}";
+
+        if (!is_null($query->getOnCluster())) {
+            $sql .= " ON CLUSTER {$query->getOnCluster()}";
+        }
+
+        $sql .= ' DELETE';
+
+        if (!is_null($query->getWheres()) && !empty($query->getWheres())) {
+            $sql .= " {$this->compileWheresComponent($query, $query->getWheres())}";
+        } else {
+            throw GrammarException::missedWhereForDelete();
+        }
+
+        return $sql;
     }
 
     /**
@@ -160,6 +254,8 @@ class Grammar
         } elseif (is_array($value)) {
             return array_map([$this, 'wrap'], $value);
         } elseif (is_string($value)) {
+            $value = addslashes($value);
+
             return "'{$value}'";
         } elseif ($value instanceof Identifier) {
             $value = (string) $value;
@@ -188,6 +284,8 @@ class Grammar
             return '`'.str_replace('`', '``', $value).'`';
         } elseif (is_numeric($value)) {
             return $value;
+        } elseif (is_null($value)) {
+            return 'null';
         } else {
             return;
         }

@@ -63,10 +63,10 @@ class Column
      *
      * @return Column
      */
-    public function name($columnName) : self
+    public function name($columnName): self
     {
         if ($columnName instanceof \Closure) {
-            $columnName = tap(new static($this->query), $columnName);
+            $columnName = tp(new static($this->query), $columnName);
         }
 
         if (is_string($columnName)) {
@@ -85,7 +85,7 @@ class Column
      *
      * @return Column
      */
-    public function as(string $alias) : self
+    public function as(string $alias): self
     {
         $this->alias = new Identifier($alias);
 
@@ -99,7 +99,7 @@ class Column
      *
      * @return Column
      */
-    public function alias(string $alias) : self
+    public function alias(string $alias): self
     {
         return $this->as($alias);
     }
@@ -139,7 +139,7 @@ class Column
      *
      * @return Identifier|null
      */
-    public function getAlias() : ?Identifier
+    public function getAlias(): ?Identifier
     {
         return $this->alias;
     }
@@ -149,7 +149,7 @@ class Column
      *
      * @return array
      */
-    public function getFunctions() : array
+    public function getFunctions(): array
     {
         return $this->functions;
     }
@@ -159,7 +159,7 @@ class Column
      *
      * @return Builder|null
      */
-    public function getSubQuery() : ?Builder
+    public function getSubQuery(): ?Builder
     {
         return $this->subQuery;
     }
@@ -190,6 +190,56 @@ class Column
         $expression = $this->expressionToString($expression);
 
         $this->functions[] = ['function' => 'sumIf', 'params' => $expression];
+
+        return $this;
+    }
+
+    /**
+     * Apply sum function to column.
+     *
+     * @param string|Expression|null $columnName
+     *
+     * @return $this
+     */
+    public function sum($columnName = null): self
+    {
+        if ($columnName !== null) {
+            $this->name($columnName);
+        }
+
+        $this->functions[] = ['function' => 'sum'];
+
+        return $this;
+    }
+
+    /**
+     * Apply max function to column.
+     *
+     * @param string|Expression|null $columnName
+     *
+     * @return $this
+     */
+    public function max($columnName = null): self
+    {
+        if ($columnName !== null) {
+            $this->name($columnName);
+        }
+
+        $this->functions[] = ['function' => 'max'];
+
+        return $this;
+    }
+
+    /**
+     * Apply round function to column.
+     *
+     * @param int $decimals
+     *
+     * @return $this
+     */
+    public function round(int $decimals = 0): self
+    {
+        $this->functions[] = ['function' => 'round', 'params' => $decimals];
 
         return $this;
     }
@@ -252,7 +302,7 @@ class Column
      *
      * @return Builder
      */
-    public function subQuery() : Builder
+    public function subQuery(): Builder
     {
         return $this->subQuery = $this->query->newQuery();
     }
@@ -271,7 +321,7 @@ class Column
         }
 
         if ($query instanceof \Closure) {
-            $query = tap($this->query->newQuery(), $query);
+            $query = tp($this->query->newQuery(), $query);
         }
 
         if ($query instanceof BaseBuilder) {

@@ -3,6 +3,8 @@
 namespace Tinderbox\ClickhouseBuilder\Query;
 
 use Tinderbox\Clickhouse\Client;
+use Tinderbox\Clickhouse\Common\Format;
+use Tinderbox\Clickhouse\Query;
 
 class Builder extends BaseBuilder
 {
@@ -25,32 +27,50 @@ class Builder extends BaseBuilder
     }
 
     /**
+     * @return \Tinderbox\Clickhouse\Client
+     */
+    public function getClient(): Client
+    {
+        return $this->client;
+    }
+
+    /**
      * Perform compiled from builder sql query and getting result.
      *
-     * @throws \Tinderbox\Clickhouse\Exceptions\ClientException
+     * @param array $settings
      *
      * @return \Tinderbox\Clickhouse\Query\Result|\Tinderbox\Clickhouse\Query\Result[]
      */
-    public function get()
+    public function get(array $settings = [])
     {
         if (!empty($this->async)) {
-            return $this->client->selectAsync($this->toAsyncSqls());
+            return $this->client->read($this->toAsyncQueries());
         } else {
-            return $this->client->select($this->toSql(), [], $this->getFiles());
+            return $this->client->readOne($this->toSql(), $this->getFiles(), $settings);
         }
+    }
+
+    /**
+     * Returns Query instance.
+     *
+     * @param array $settings
+     *
+     * @return Query
+     */
+    public function toQuery(array $settings = []): Query
+    {
+        return new Query($this->client->getServer(), $this->toSql(), $this->getFiles(), $settings);
     }
 
     /**
      * Performs compiled sql for count rows only. May be used for pagination
      * Works only without async queries.
      *
-     * @param string $column Column to pass into count() aggregate function
-     *
      * @return int|mixed
      */
-    public function count($column = '*')
+    public function count()
     {
-        $builder = $this->getCountQuery($column);
+        $builder = $this->getCountQuery();
         $result = $builder->get();
 
 //        if (!empty($this->groups)) {
@@ -65,7 +85,7 @@ class Builder extends BaseBuilder
      *
      * @return self
      */
-    public function newQuery() : Builder
+    public function newQuery(): self
     {
         return new static($this->client);
     }
@@ -77,14 +97,36 @@ class Builder extends BaseBuilder
      * @param array  $files
      * @param string $format
      * @param int    $concurrency
-     *
-     * @throws \Tinderbox\Clickhouse\Exceptions\ClientException
+     * @param array  $settings
      *
      * @return array
      */
-    public function insertFiles(array $columns, array $files, string $format = \Tinderbox\Clickhouse\Common\Format::CSV, int $concurrency = 5) : array
+    public function insertFiles(array $columns, array $files, string $format = Format::CSV, int $concurrency = 5, array $settings = []): array
     {
-        return $this->client->insertFiles($this->getFrom()->getTable(), $columns, $files, $format, $concurrency);
+        foreach ($files as $i => $file) {
+            $files[$i] = $this->prepareFile($file);
+        }
+
+        return $this->client->writeFiles($this->getFrom()->getTable(), $columns, $files, $format, $settings, $concurrency);
+    }
+
+    /**
+     * Insert in table data from files.
+     *
+     * @param array                                                 $columns
+     * @param string|\Tinderbox\Clickhouse\Interfaces\FileInterface $file
+     * @param string                                                $format
+     * @param array                                                 $settings
+     *
+     * @return bool
+     */
+    public function insertFile(array $columns, $file, string $format = Format::CSV, array $settings = []): bool
+    {
+        $file = $this->prepareFile($file);
+
+        $result = $this->client->writeFiles($this->getFrom()->getTable(), $columns, [$file], $format, $settings);
+
+        return $result[0][0];
     }
 
     /**
@@ -102,9 +144,7 @@ class Builder extends BaseBuilder
 
         if (!is_array(reset($values))) {
             $values = [$values];
-        }
-
-        /*
+        } /*
          * Here, we will sort the insert keys for every record so that each insert is
          * in the same order for the record. We need to make sure this is the case
          * so there are not any errors or problems when inserting these records.
@@ -115,17 +155,66 @@ class Builder extends BaseBuilder
                 $values[$key] = $value;
             }
         }
-        
+
         //remove null fields (fix issue with parsing values)
         foreach ($values as $key => $value) {
             $values[$key] = array_filter($values[$key], function ($value) {
                 return $value !== null;
             });
         }
-        
-        return $this->client->insert(
-            $this->grammar->compileInsert($this, $values),
-            array_flatten($values)
+
+        return $this->client->writeOne($this->grammar->compileInsert($this, $values));
+    }
+
+    /**
+     * Performs ALTER TABLE `table` DELETE query.
+     *
+     * @throws \Tinderbox\ClickhouseBuilder\Exceptions\GrammarException
+     *
+     * @return bool
+     */
+    public function delete()
+    {
+        return $this->client->writeOne(
+            $this->grammar->compileDelete($this)
         );
+    }
+
+    /**
+     * Executes query to create table.
+     *
+     * @param        $tableName
+     * @param string $engine
+     * @param array  $structure
+     *
+     * @return bool
+     */
+    public function createTable($tableName, string $engine, array $structure, ?string $extraOptions = null)
+    {
+        return $this->client->writeOne($this->grammar->compileCreateTable($tableName, $engine, $structure, false, $this->getOnCluster(), $extraOptions));
+    }
+
+    /**
+     * Executes query to create table if table does not exists.
+     *
+     * @param        $tableName
+     * @param string $engine
+     * @param array  $structure
+     *
+     * @return bool
+     */
+    public function createTableIfNotExists($tableName, string $engine, array $structure, ?string $extraOptions = null)
+    {
+        return $this->client->writeOne($this->grammar->compileCreateTable($tableName, $engine, $structure, true, $this->getOnCluster(), $extraOptions));
+    }
+
+    public function dropTable($tableName)
+    {
+        return $this->client->writeOne($this->grammar->compileDropTable($tableName));
+    }
+
+    public function dropTableIfExists($tableName)
+    {
+        return $this->client->writeOne($this->grammar->compileDropTable($tableName, true));
     }
 }

@@ -16,7 +16,7 @@ trait FromComponentCompiler
      *
      * @return string
      */
-    public function compileFromComponent(BaseBuilder $builder, From $from) : string
+    public function compileFromComponent(BaseBuilder $builder, From $from): string
     {
         $this->verifyFrom($from);
 
@@ -48,7 +48,7 @@ trait FromComponentCompiler
     private function verifyFrom(From $from)
     {
         if (is_null($from->getTable())) {
-            throw GrammarException::wrongFrom($from);
+            throw GrammarException::wrongFrom();
         }
     }
 }
